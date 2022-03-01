@@ -5,6 +5,7 @@ import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader'
 import { Octree } from 'three/examples/jsm/math/Octree.js'
 import { Capsule } from 'three/examples/jsm/math/Capsule.js'
+import Stats from 'stats.js'
 
 import GUI from 'lil-gui'
 
@@ -14,7 +15,7 @@ const scene = new THREE.Scene()
 scene.background = new THREE.Color(0x88ccee)
 scene.fog = new THREE.Fog(0x88ccee, 0, 100)
 
-const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000)
+const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 500)
 camera.rotation.order = 'YXZ'
 
 const fillLight1 = new THREE.HemisphereLight(0x4488bb, 0x002244, 0.5)
@@ -47,10 +48,11 @@ renderer.outputEncoding = THREE.sRGBEncoding
 renderer.toneMapping = THREE.ACESFilmicToneMapping
 container.appendChild(renderer.domElement)
 
-// const stats = new Stats()
-// stats.domElement.style.position = 'absolute'
-// stats.domElement.style.top = '0px'
-// container.appendChild(stats.domElement)
+const stats = new Stats()
+console.log(stats)
+stats.domElement.style.position = 'absolute'
+stats.domElement.style.top = '0px'
+container.appendChild(stats.domElement)
 
 const GRAVITY = 30
 const STEPS_PER_FRAME = 5
@@ -260,7 +262,7 @@ function animate() {
 
     renderer.render(scene, camera)
 
-    // stats.update()
+    stats.update()
 
     requestAnimationFrame(animate)
 }
