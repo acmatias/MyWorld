@@ -1,396 +1,266 @@
 import './style.css'
+
 import * as THREE from 'three'
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
-import { PointerLockControls } from 'three/examples/jsm/controls/PointerLockControls'
+
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader'
-import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader'
-import * as dat from 'lil-gui'
-import * as CANNON from 'cannon-es'
+import { Octree } from 'three/examples/jsm/math/Octree.js'
+import { Capsule } from 'three/examples/jsm/math/Capsule.js'
 
-let raycaster
+import GUI from 'lil-gui'
 
-let moveForward = false
-let moveBackward = false
-let moveLeft = false
-let moveRight = false
-let canJump = false
+const clock = new THREE.Clock()
 
-let prevTime = performance.now()
-const velocity = new THREE.Vector3()
-const direction = new THREE.Vector3()
-const vertex = new THREE.Vector3()
-const color = new THREE.Color()
-
-/**
- * Debug
- */
-const gui = new dat.GUI()
-
-// const debugObject = {}
-// debugObject.createSphere = () => {
-//     createSphere(Math.random() * 0.5, {
-//         x: (Math.random() - 0.5) * 3,
-//         y: 3,
-//         z: (Math.random() - 0.5) * 3,
-//     })
-// }
-// debugObject.createBox = () => {
-//     createBox(Math.random(), Math.random(), Math.random(), {
-//         x: (Math.random() - 0.5) * 3,
-//         y: 3,
-//         z: (Math.random() - 0.5) * 3,
-//     })
-// }
-// debugObject.reset = () => {
-//     for (const object of objectsToUpdate) {
-//         // Remove body
-//         object.body.removeEventListener('collide', playHitSounds)
-//         world.removeBody(object.body)
-
-//         // Remove mesh
-//         scene.remove(object.mesh)
-//     }
-// }
-// gui.add(debugObject, 'createSphere')
-// gui.add(debugObject, 'createBox')
-// gui.add(debugObject, 'reset')
-
-/**
- * Base
- */
-// Canvas
-const canvas = document.querySelector('canvas.webgl')
-
-// Scene
 const scene = new THREE.Scene()
-scene.background = new THREE.Color('#000000')
-scene.fog = new THREE.Fog('#ffffff', 0, 535)
+scene.background = new THREE.Color(0x88ccee)
+scene.fog = new THREE.Fog(0x88ccee, 0, 100)
 
-gui.add(scene.fog, 'far').min(100).max(1000).step(1).name('fog')
+const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000)
+camera.rotation.order = 'YXZ'
 
-/**
- * Sounds
- */
-// const hitSounds = new Audio('/sounds/hit.mp3')
+const fillLight1 = new THREE.HemisphereLight(0x4488bb, 0x002244, 0.5)
+fillLight1.position.set(2, 1, 1)
+scene.add(fillLight1)
 
-// const playHitSounds = (collision) => {
-//     const impactStrength = collision.contact.getImpactVelocityAlongNormal()
+const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8)
+directionalLight.position.set(-5, 25, -1)
+directionalLight.castShadow = true
+directionalLight.shadow.camera.near = 0.01
+directionalLight.shadow.camera.far = 500
+directionalLight.shadow.camera.right = 30
+directionalLight.shadow.camera.left = -30
+directionalLight.shadow.camera.top = 30
+directionalLight.shadow.camera.bottom = -30
+directionalLight.shadow.mapSize.width = 1024
+directionalLight.shadow.mapSize.height = 1024
+directionalLight.shadow.radius = 4
+directionalLight.shadow.bias = -0.00006
+scene.add(directionalLight)
 
-//     if (impactStrength > 1.5) {
-//         hitSounds.volume = Math.random()
-//         hitSounds.currentTime = 0
-//         hitSounds.play()
-//     }
-// }
+const container = document.getElementById('container')
 
-/**
- * Textures
- */
-const textureLoader = new THREE.TextureLoader()
-const dracoLoader = new DRACOLoader()
-dracoLoader.setDecoderPath('/draco/')
+const renderer = new THREE.WebGLRenderer({ antialias: true })
+renderer.setPixelRatio(window.devicePixelRatio)
+renderer.setSize(window.innerWidth, window.innerHeight)
+renderer.shadowMap.enabled = true
+renderer.shadowMap.type = THREE.VSMShadowMap
+renderer.outputEncoding = THREE.sRGBEncoding
+renderer.toneMapping = THREE.ACESFilmicToneMapping
+container.appendChild(renderer.domElement)
 
-const gltfLoader = new GLTFLoader()
-gltfLoader.setDRACOLoader(dracoLoader)
-const cubeTextureLoader = new THREE.CubeTextureLoader()
+// const stats = new Stats()
+// stats.domElement.style.position = 'absolute'
+// stats.domElement.style.top = '0px'
+// container.appendChild(stats.domElement)
 
-const environmentMapTexture = cubeTextureLoader.load([
-    '/textures/environmentMaps/0/px.png',
-    '/textures/environmentMaps/0/nx.png',
-    '/textures/environmentMaps/0/py.png',
-    '/textures/environmentMaps/0/ny.png',
-    '/textures/environmentMaps/0/pz.png',
-    '/textures/environmentMaps/0/nz.png',
-])
+const GRAVITY = 30
+const STEPS_PER_FRAME = 5
 
-/**
- * Physics
- */
-// // World
-const world = new CANNON.World()
-// world.broadphase = new CANNON.SAPBroadphase(world)
-// world.allowSleep = true
-// world.gravity.set(0, -9.32, 0)
+const worldOctree = new Octree()
 
-// // Materials
-// const defaultMaterial = new CANNON.Material('default')
-// // const plasticMaterial = new CANNON.Material('plastic')
+const playerCollider = new Capsule(new THREE.Vector3(0, 0.35, 0), new THREE.Vector3(0, 1, 0), 0.35)
 
-// const defaultContactMaterial = new CANNON.ContactMaterial(defaultMaterial, defaultMaterial, {
-//     friction: 0.1,
-//     restitution: 0.7,
-// })
-// world.addContactMaterial(defaultContactMaterial)
-// world.defaultContactMaterial = defaultContactMaterial
+const playerVelocity = new THREE.Vector3()
+const playerDirection = new THREE.Vector3()
 
-// Floor
-const floorShape = new CANNON.Plane()
-const floorBody = new CANNON.Body()
-floorBody.mass = 0
-floorBody.addShape(floorShape)
-floorBody.quaternion.setFromAxisAngle(new CANNON.Vec3(-1, 0, 0), Math.PI * 0.5)
+let playerOnFloor = false
+let mouseTime = 0
 
-world.addBody(floorBody)
+const keyStates = {}
 
-/**
- * Floor
- */
-
-// const floor = new THREE.Mesh(
-//     new THREE.PlaneGeometry(2000, 2000, 100, 100),
-//     new THREE.MeshStandardMaterial({
-//         color: '#777777',
-//         metalness: 0.3,
-//         roughness: 0.4,
-//         envMap: environmentMapTexture,
-//         envMapIntensity: 0.5,
-//     })
-// )
-// floor.receiveShadow = true
-// floor.rotation.x = -Math.PI * 0.5
-// scene.add(floor)
-
-// Floor 2
-let floorGeometry = new THREE.PlaneGeometry(2000, 2000, 100, 100)
-floorGeometry.rotateX(-Math.PI / 2)
-
-// vertex displacement
-
-let position = floorGeometry.attributes.position
-
-for (let i = 0, l = position.count; i < l; i++) {
-    vertex.fromBufferAttribute(position, i)
-
-    vertex.x += Math.random() * 20 - 10
-    vertex.y += Math.random() * 2
-    vertex.z += Math.random() * 20 - 10
-
-    position.setXYZ(i, vertex.x, vertex.y, vertex.z)
-}
-
-floorGeometry = floorGeometry.toNonIndexed() // ensure each face has unique vertices
-
-position = floorGeometry.attributes.position
-const colorsFloor = []
-
-for (let i = 0, l = position.count; i < l; i++) {
-    color.setHSL(Math.random() * 0.3 + 0.5, 0.75, Math.random() * 0.25 + 0.75)
-    colorsFloor.push(color.r, color.g, color.b)
-}
-
-floorGeometry.setAttribute('color', new THREE.Float32BufferAttribute(colorsFloor, 3))
-
-const floorMaterial = new THREE.MeshBasicMaterial({ vertexColors: true })
-
-const floor = new THREE.Mesh(floorGeometry, floorMaterial)
-scene.add(floor)
-
-// Models
-gltfLoader.load('/models/DungeonModel.glb', (gltf) => {
-    gltf.scene.scale.set(1.5, 1.5, 1.5)
-    gltf.scene.position.set(-3.5, -2, -25)
-    // scene.add(gltf.scene)
-    // updateAllMaterials()
-})
-gltfLoader.load('/models/JapaneseHouseModel.glb', (gltf) => {
-    // gltf.scene.scale.set(0.5, 0.5, 0.5)
-    gltf.scene.position.set(-60, 3.3, -100)
-    gltf.scene.rotation.y = -0.6
-    scene.add(gltf.scene)
-    // updateAllMaterials()
-})
-
-// -----------------------------------------------------------------------------------------------------
-
-/**
- * Lights
- */
-
-const light = new THREE.HemisphereLight(0xeeeeff, 0x777788, 1.5)
-light.position.set(0.5, 1, 0.75)
-scene.add(light)
-
-/**
- * Sizes
- */
-const sizes = {
-    width: window.innerWidth,
-    height: window.innerHeight,
-}
-
-window.addEventListener('resize', () => {
-    // Update sizes
-    sizes.width = window.innerWidth
-    sizes.height = window.innerHeight
-
-    // Update camera
-    camera.aspect = sizes.width / sizes.height
-    camera.updateProjectionMatrix()
-
-    // Update renderer
-    renderer.setSize(sizes.width, sizes.height)
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
-})
-
-/**
- * Camera
- */
-// Base camera
-const camera = new THREE.PerspectiveCamera(75, sizes.width / sizes.height, 0.1, 500)
-camera.position.set(0, 10, 0)
-scene.add(camera)
-
-// Controls
-const controls = new PointerLockControls(camera, canvas)
-
-const blocker = document.getElementById('blocker')
+// const blocker = document.getElementById('blocker')
 const instructions = document.getElementById('instructions')
 
-instructions.addEventListener('click', function () {
-    controls.lock()
+// instructions.addEventListener('click', function () {
+//     // controls.lock()
+//     console.log('test')
+//     instructions.style.display = 'none'
+//     blocker.style.display = 'none'
+// })
+
+// controls.addEventListener('lock', function () {
+//     instructions.style.display = 'none'
+//     blocker.style.display = 'none'
+// })
+
+// controls.addEventListener('unlock', function () {
+//     blocker.style.display = 'block'
+//     instructions.style.display = ''
+// })
+
+document.addEventListener('keydown', (event) => {
+    keyStates[event.code] = true
 })
 
-controls.addEventListener('lock', function () {
+document.addEventListener('keyup', (event) => {
+    keyStates[event.code] = false
+})
+
+container.addEventListener('mousedown', () => {
+    document.body.requestPointerLock()
     instructions.style.display = 'none'
-    blocker.style.display = 'none'
+    // blocker.style.display = 'none'
+    mouseTime = performance.now()
+    console.log('test')
+})
+// console.log(container)
+// container.addEventListener('lock', () => {
+//     console.log('test')
+//     // instructions.style.display = 'none'
+//     // blocker.style.display = 'none'
+// })
+
+// document.addEventListener('mouseup', () => {
+//     if (document.pointerLockElement !== null) throwBall()
+// })
+
+// if (document.pointerLockElement === container || document.mozPointerLockElement === container) {
+//     console.log('The pointer lock status is now locked')
+// } else {
+//     console.log('The pointer lock status is now unlocked')
+// }
+
+document.body.addEventListener('mousemove', (event) => {
+    if (document.pointerLockElement === document.body) {
+        camera.rotation.y -= event.movementX / 500
+        camera.rotation.x -= event.movementY / 500
+    }
 })
 
-controls.addEventListener('unlock', function () {
-    blocker.style.display = 'block'
-    instructions.style.display = ''
-})
+window.addEventListener('resize', onWindowResize)
 
-scene.add(controls.getObject())
+function onWindowResize() {
+    camera.aspect = window.innerWidth / window.innerHeight
+    camera.updateProjectionMatrix()
 
-const onKeyDown = function (event) {
-    switch (event.code) {
-        case 'ArrowUp':
-        case 'KeyW':
-            moveForward = true
-            break
+    renderer.setSize(window.innerWidth, window.innerHeight)
+}
 
-        case 'ArrowLeft':
-        case 'KeyA':
-            moveLeft = true
-            break
+function playerCollisions() {
+    const result = worldOctree.capsuleIntersect(playerCollider)
 
-        case 'ArrowDown':
-        case 'KeyS':
-            moveBackward = true
-            break
+    playerOnFloor = false
 
-        case 'ArrowRight':
-        case 'KeyD':
-            moveRight = true
-            break
+    if (result) {
+        playerOnFloor = result.normal.y > 0
 
-        case 'Space':
-            if (canJump === true) velocity.y += 300
-            canJump = false
-            break
+        if (!playerOnFloor) {
+            playerVelocity.addScaledVector(result.normal, -result.normal.dot(playerVelocity))
+        }
+
+        playerCollider.translate(result.normal.multiplyScalar(result.depth))
     }
 }
 
-const onKeyUp = function (event) {
-    switch (event.code) {
-        case 'ArrowUp':
-        case 'KeyW':
-            moveForward = false
-            break
+function updatePlayer(deltaTime) {
+    let damping = Math.exp(-4 * deltaTime) - 1
 
-        case 'ArrowLeft':
-        case 'KeyA':
-            moveLeft = false
-            break
+    if (!playerOnFloor) {
+        playerVelocity.y -= GRAVITY * deltaTime
 
-        case 'ArrowDown':
-        case 'KeyS':
-            moveBackward = false
-            break
-
-        case 'ArrowRight':
-        case 'KeyD':
-            moveRight = false
-            break
+        // small air resistance
+        damping *= 0.1
     }
+
+    playerVelocity.addScaledVector(playerVelocity, damping)
+
+    const deltaPosition = playerVelocity.clone().multiplyScalar(deltaTime)
+    playerCollider.translate(deltaPosition)
+
+    playerCollisions()
+
+    camera.position.copy(playerCollider.end)
 }
 
-document.addEventListener('keydown', onKeyDown)
-document.addEventListener('keyup', onKeyUp)
+function getForwardVector() {
+    camera.getWorldDirection(playerDirection)
+    playerDirection.y = 0
+    playerDirection.normalize()
 
-raycaster = new THREE.Raycaster(new THREE.Vector3(), new THREE.Vector3(0, -1, 0), 0, 10)
+    return playerDirection
+}
 
-/**
- * Renderer
- */
-const renderer = new THREE.WebGLRenderer({
-    canvas: canvas,
-})
-renderer.shadowMap.enabled = true
-renderer.shadowMap.type = THREE.PCFSoftShadowMap
-renderer.setSize(sizes.width, sizes.height)
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+function getSideVector() {
+    camera.getWorldDirection(playerDirection)
+    playerDirection.y = 0
+    playerDirection.normalize()
+    playerDirection.cross(camera.up)
 
-/**
- * Animate
- */
-const clock = new THREE.Clock()
-let oldElapsedTime = 0
+    return playerDirection
+}
 
-const tick = () => {
-    const elapsedTime = clock.getElapsedTime()
-    const deltaTime = elapsedTime - oldElapsedTime
-    oldElapsedTime = elapsedTime
+function controls(deltaTime) {
+    // gives a bit of air control
+    const speedDelta = deltaTime * (playerOnFloor ? 25 : 8)
 
-    const time = performance.now()
+    if (keyStates['KeyW']) {
+        playerVelocity.add(getForwardVector().multiplyScalar(speedDelta))
+    }
 
-    // Update controls
-    if (controls.isLocked === true) {
-        raycaster.ray.origin.copy(controls.getObject().position)
-        raycaster.ray.origin.y -= 10
+    if (keyStates['KeyS']) {
+        playerVelocity.add(getForwardVector().multiplyScalar(-speedDelta))
+    }
 
-        // const intersections = raycaster.intersectObjects(objects, false)
+    if (keyStates['KeyA']) {
+        playerVelocity.add(getSideVector().multiplyScalar(-speedDelta))
+    }
 
-        // const onObject = intersections.length > 0
+    if (keyStates['KeyD']) {
+        playerVelocity.add(getSideVector().multiplyScalar(speedDelta))
+    }
 
-        const delta = (time - prevTime) / 1000
-
-        velocity.x -= velocity.x * 10.0 * delta
-        velocity.z -= velocity.z * 10.0 * delta
-
-        velocity.y -= 9.8 * 100.0 * delta // 100.0 = mass
-
-        direction.z = Number(moveForward) - Number(moveBackward)
-        direction.x = Number(moveRight) - Number(moveLeft)
-        direction.normalize() // this ensures consistent movements in all directions
-
-        if (moveForward || moveBackward) velocity.z -= direction.z * 400.0 * delta
-        if (moveLeft || moveRight) velocity.x -= direction.x * 400.0 * delta
-
-        // if (onObject === true) {
-        //     velocity.y = Math.max(0, velocity.y)
-        //     canJump = true
-        // }
-
-        controls.moveRight(-velocity.x * delta)
-        controls.moveForward(-velocity.z * delta)
-
-        controls.getObject().position.y += velocity.y * delta // new behavior
-
-        if (controls.getObject().position.y < 10) {
-            velocity.y = 0
-            controls.getObject().position.y = 10
-
-            canJump = true
+    if (playerOnFloor) {
+        if (keyStates['Space']) {
+            playerVelocity.y = 10
         }
     }
-    prevTime = time
-
-    // Render
-    renderer.render(scene, camera)
-
-    // Call tick again on the next frame
-    window.requestAnimationFrame(tick)
 }
 
-tick()
+const loader = new GLTFLoader().setPath('/models/')
+
+loader.load('myworld.glb', (gltf) => {
+    scene.add(gltf.scene)
+
+    worldOctree.fromGraphNode(gltf.scene)
+
+    gltf.scene.traverse((child) => {
+        if (child.isMesh) {
+            child.castShadow = true
+            child.receiveShadow = true
+
+            if (child.material.map) {
+                child.material.map.anisotropy = 4
+            }
+        }
+    })
+})
+
+function teleportPlayerIfOob() {
+    if (camera.position.y <= -25) {
+        playerCollider.start.set(0, 0.35, 0)
+        playerCollider.end.set(0, 1, 0)
+        playerCollider.radius = 0.35
+        camera.position.copy(playerCollider.end)
+        camera.rotation.set(0, 0, 0)
+    }
+}
+animate()
+function animate() {
+    const deltaTime = Math.min(0.05, clock.getDelta()) / STEPS_PER_FRAME
+
+    // we look for collisions in substeps to mitigate the risk of
+    // an object traversing another too quickly for detection.
+
+    for (let i = 0; i < STEPS_PER_FRAME; i++) {
+        controls(deltaTime)
+
+        updatePlayer(deltaTime)
+
+        teleportPlayerIfOob()
+    }
+
+    renderer.render(scene, camera)
+
+    // stats.update()
+
+    requestAnimationFrame(animate)
+}
