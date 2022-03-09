@@ -69,25 +69,7 @@ let mouseTime = 0
 
 const keyStates = {}
 
-// const blocker = document.getElementById('blocker')
 const instructions = document.getElementById('instructions')
-
-// instructions.addEventListener('click', function () {
-//     // controls.lock()
-//     console.log('test')
-//     instructions.style.display = 'none'
-//     blocker.style.display = 'none'
-// })
-
-// controls.addEventListener('lock', function () {
-//     instructions.style.display = 'none'
-//     blocker.style.display = 'none'
-// })
-
-// controls.addEventListener('unlock', function () {
-//     blocker.style.display = 'block'
-//     instructions.style.display = ''
-// })
 
 document.addEventListener('keydown', (event) => {
     keyStates[event.code] = true
@@ -104,22 +86,6 @@ container.addEventListener('mousedown', () => {
     mouseTime = performance.now()
     console.log('test')
 })
-// console.log(container)
-// container.addEventListener('lock', () => {
-//     console.log('test')
-//     // instructions.style.display = 'none'
-//     // blocker.style.display = 'none'
-// })
-
-// document.addEventListener('mouseup', () => {
-//     if (document.pointerLockElement !== null) throwBall()
-// })
-
-// if (document.pointerLockElement === container || document.mozPointerLockElement === container) {
-//     console.log('The pointer lock status is now locked')
-// } else {
-//     console.log('The pointer lock status is now unlocked')
-// }
 
 document.body.addEventListener('mousemove', (event) => {
     if (document.pointerLockElement === document.body) {
@@ -235,6 +201,15 @@ loader.load('myworld.glb', (gltf) => {
         }
     })
 })
+let mixer = null
+
+loader.load('plane.glb', (gltf) => {
+    scene.add(gltf.scene)
+
+    mixer = new THREE.AnimationMixer(gltf.scene)
+    const foxAction = mixer.clipAction(getAnimation(gltf, 'planeAction'))
+    foxAction.play()
+})
 
 function teleportPlayerIfOob() {
     if (camera.position.y <= -25) {
@@ -245,8 +220,23 @@ function teleportPlayerIfOob() {
         camera.rotation.set(0, 0, 0)
     }
 }
-animate()
-function animate() {
+
+function getAnimation(gltf, name) {
+    let result
+    gltf.animations.forEach((animation) => {
+        if (animation.name === name) {
+            result = animation
+            return
+        }
+    })
+    if (result == null) {
+        console.error('animation: ' + name + ' cannot be found!')
+    }
+    return result
+}
+
+tick()
+function tick() {
     const deltaTime = Math.min(0.05, clock.getDelta()) / STEPS_PER_FRAME
 
     // we look for collisions in substeps to mitigate the risk of
@@ -259,10 +249,13 @@ function animate() {
 
         teleportPlayerIfOob()
     }
+    if (mixer) {
+        mixer.update(deltaTime * 5)
+    }
 
     renderer.render(scene, camera)
 
     stats.update()
 
-    requestAnimationFrame(animate)
+    requestAnimationFrame(tick)
 }
